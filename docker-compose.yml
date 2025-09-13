@@ -1,56 +1,78 @@
 services:
-  db:
-    image: postgres:16
-    container_name: tm_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    db:
+        image: postgres:16
+        container_name: tm_db
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB}
+        ports:
+            - "5432:5432"
+        volumes:
+            - pgdata:/var/lib/postgresql/data
 
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: tm_pgadmin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-    ports:
-      - "5050:80"
-    depends_on:
-      - db
+    pgadmin:
+        image: dpage/pgadmin4
+        container_name: tm_pgadmin
+        restart: unless-stopped
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+        ports:
+            - "5050:80"
+        depends_on:
+            - db
     api:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    container_name: tm_api
-    command: ["go", "run", "./cmd/api"]
-    working_dir: /app
-    volumes:
-      - ./server:/app
-    ports:
-      - "8080:8080"
-    depends_on:
-      - db
+        build:
+            context: ./server
+            dockerfile: Dockerfile
+        container_name: tm_api
+        command: ["air", "-c", ".air.toml", "-build.poll", "true", "-build.poll_interval", "1000"]
+        working_dir: /app
+        volumes:
+            - ./server:/app
+        ports:
+            - "8080:8080"
+        depends_on:
+            - db
+        environment:
+            - DB_DSN=${DB_DSN}
 
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: tm_web
-    command: ["pnpm", "dev", "--host"]
-    working_dir: /app
-    volumes:
-      - ./web:/app
-      - /app/node_modules
-    ports:
-      - "5173:5173"
-    depends_on:
-      - api
+    web:
+        build:
+            context: ./web
+            dockerfile: Dockerfile
+        container_name: tm_web
+        command: ["pnpm", "dev", "--host"]
+        working_dir: /app
+        volumes:
+            - ./web:/app
+            - /app/node_modules
+        ports:
+            - "5173:5173"
+        depends_on:
+            - api
+
+    migrate:
+        image: migrate/migrate:4
+        volumes:
+            - ./db/migrations:/migrations
+        depends_on:
+            - db
+        entrypoint: ["migrate"]
+        command: ["-path", "/migrations", "-database", "postgres://app:app@db:5432/taskmgr?sslmode=disable", "up"]
+
+    seed:
+        image: postgres:16
+        depends_on:
+            - db
+        volumes:
+            - ./db/seed:/seed
+        environment:
+            PGPASSWORD: ${POSTGRES_PASSWORD}
+        entrypoint: ["psql"]
+        command: ["-h", "db", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}", "-f", "/seed/seed.sql"]
 
 volumes:
-  pgdata:
+    pgdata:

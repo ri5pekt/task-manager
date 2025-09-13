@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS task_assignees;
+ALTER TABLE tasks DROP COLUMN IF EXISTS created_by;
