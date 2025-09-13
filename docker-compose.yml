@@ -44,7 +44,8 @@ services:
             context: ./web
             dockerfile: Dockerfile
         container_name: tm_web
-        command: ["pnpm", "dev", "--host"]
+        command:
+            ["bash", "-lc", "corepack enable && corepack prepare pnpm@9 --activate && pnpm install && pnpm dev --host"]
         working_dir: /app
         volumes:
             - ./web:/app
