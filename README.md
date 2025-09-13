@@ -20,3 +20,6 @@ Mono-repo with Go API, Vue 3 web app, and Postgres (via Docker).
 2) Prereqs: Docker Desktop, Go, Node LTS.
 3) Docker Compose for dev (db/api/web).
 4) Minimal health endpoints.
+## DB Quick Access
+- pgAdmin: http://localhost:5050  
+  - Add Server ? Host: db, User: app, Password: app
