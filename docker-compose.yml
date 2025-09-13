@@ -23,6 +23,34 @@ services:
       - "5050:80"
     depends_on:
       - db
+    api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: tm_api
+    command: ["go", "run", "./cmd/api"]
+    working_dir: /app
+    volumes:
+      - ./server:/app
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: tm_web
+    command: ["pnpm", "dev", "--host"]
+    working_dir: /app
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
 
 volumes:
   pgdata:
