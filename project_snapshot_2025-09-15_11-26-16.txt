@@ -1,0 +1,1806 @@
+### PROJECT SNAPSHOT
+Generated: 2025-09-15 11:26:17 +03:00
+Root: C:\Users\denis_particleformen\Desktop\docker-projects\task-manager
+
+--- PROJECT STRUCTURE (filtered) ---
+
+[DIR] .
+  - .env
+  - .env.example
+  - .gitignore
+  - docker-compose.yml
+  - project_snapshot_2025-09-15_11-26-12.txt
+  - README.md
+[DIR] db\migrations
+  - 0001_users.down.sql
+  - 0001_users.up.sql
+  - 0002_boards_and_lists.down.sql
+  - 0002_boards_and_lists.up.sql
+  - 0003_tasks.down.sql
+  - 0003_tasks.up.sql
+  - 0004_task_creator_and_assignees.down.sql
+  - 0004_task_creator_and_assignees.up.sql
+  - 0005_comments.down.sql
+  - 0005_comments.up.sql
+[DIR] db\seed
+  - seed.sql
+[DIR] server
+  - .air.toml
+  - Dockerfile
+  - go.mod
+[DIR] server\cmd\api
+  - main.go
+[DIR] web
+  - .gitignore
+  - Dockerfile
+  - index.html
+  - package.json
+  - README.md
+  - vite.config.js
+[DIR] web\public
+  - vite.svg
+[DIR] web\src
+  - App.vue
+  - main.js
+  - style.css
+[DIR] web\src\assets
+  - vue.svg
+[DIR] web\src\components
+  - HelloWorld.vue
+
+--- FILE CONTENTS (filtered) ---
+
+
+===== BEGIN FILE: .env =====
+
+POSTGRES_USER=app
+POSTGRES_PASSWORD=app
+POSTGRES_DB=taskmgr
+PGADMIN_DEFAULT_EMAIL=admin@example.com
+PGADMIN_DEFAULT_PASSWORD=admin123
+DB_DSN=postgres://app:app@db:5432/taskmgr?sslmode=disable
+
+===== END FILE =====
+
+
+===== BEGIN FILE: .env.example =====
+
+POSTGRES_USER=app
+POSTGRES_PASSWORD=app
+POSTGRES_DB=taskmgr
+PGADMIN_DEFAULT_EMAIL=admin@example.com
+PGADMIN_DEFAULT_PASSWORD=admin123
+DB_DSN=postgres://app:app@db:5432/taskmgr?sslmode=disable
+
+===== END FILE =====
+
+
+===== BEGIN FILE: .gitignore =====
+
+# Node
+node_modules/
+web/node_modules/
+
+# pnpm store (root + nested)
+.pnpm-store/
+web/.pnpm-store/
+**/.pnpm-store/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Editor/IDE settings
+.vscode/
+.idea/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0001_users.down.sql =====
+
+DROP TABLE IF EXISTS users;
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0001_users.up.sql =====
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0002_boards_and_lists.down.sql =====
+
+DROP TABLE IF EXISTS lists;
+DROP TABLE IF EXISTS boards;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0002_boards_and_lists.up.sql =====
+
+-- Boards hold lists; simple for now (owner_id optional for later).
+CREATE TABLE IF NOT EXISTS boards (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  owner_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Lists (columns) belong to a board; position supports ordering left→right.
+CREATE TABLE IF NOT EXISTS lists (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  board_id UUID NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  position INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_lists_board ON lists(board_id);
+CREATE INDEX IF NOT EXISTS idx_lists_board_position ON lists(board_id, position);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0003_tasks.down.sql =====
+
+DROP TABLE IF EXISTS tasks;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0003_tasks.up.sql =====
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  list_id UUID NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  position INT NOT NULL DEFAULT 0,                    -- order within a list (left→right top→bottom)
+  status TEXT NOT NULL DEFAULT 'todo',                -- we'll normalize later if needed
+  assignee_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  due_date DATE NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- quick lookups & ordered pulls
+CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_list_position ON tasks(list_id, position);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0004_task_creator_and_assignees.down.sql =====
+
+DROP TABLE IF EXISTS task_assignees;
+ALTER TABLE tasks DROP COLUMN IF EXISTS created_by;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0004_task_creator_and_assignees.up.sql =====
+
+-- Add creator to tasks
+ALTER TABLE tasks
+  ADD COLUMN created_by UUID NULL REFERENCES users(id) ON DELETE SET NULL;
+
+-- Many-to-many assignees
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (task_id, user_id)
+);
+
+-- Helpful indexes (optional but nice)
+CREATE INDEX IF NOT EXISTS idx_task_assignees_user ON task_assignees(user_id);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0005_comments.down.sql =====
+
+DROP TABLE IF EXISTS comments;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0005_comments.up.sql =====
+
+CREATE TABLE IF NOT EXISTS comments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  task_id   UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\seed\seed.sql =====
+
+-- DEV-ONLY SEED. Run after `migrate up` on an empty DB.
+
+-- 1) One demo user
+INSERT INTO users (email, password_hash, name)
+VALUES ('demo@example.com', 'x', 'Demo User')
+ON CONFLICT (email) DO NOTHING;
+
+-- 2) One board
+WITH u AS (
+  SELECT id FROM users WHERE email = 'demo@example.com'
+),
+b AS (
+  INSERT INTO boards (name, owner_id)
+  SELECT 'Demo Board', u.id FROM u
+  RETURNING id
+)
+-- 3) Three lists
+INSERT INTO lists (board_id, name, position)
+SELECT id, 'To Do', 0 FROM b
+UNION ALL SELECT id, 'In Progress', 1 FROM b
+UNION ALL SELECT id, 'Done', 2 FROM b;
+
+-- 4) A few tasks into "To Do"
+WITH
+  b AS (SELECT id FROM boards WHERE name = 'Demo Board'),
+  l AS (
+    SELECT id FROM lists WHERE board_id = (SELECT id FROM b) AND name = 'To Do'
+  ),
+  u AS (SELECT id FROM users WHERE email = 'demo@example.com')
+INSERT INTO tasks (list_id, title, description, position, status, created_by, due_date)
+SELECT (SELECT id FROM l), 'Wire API → DB', 'Ping DB + version()', 0, 'in_progress', (SELECT id FROM u), CURRENT_DATE + 3
+UNION ALL
+SELECT (SELECT id FROM l), 'Add migrations', 'users, boards, lists, tasks, comments', 1, 'todo', (SELECT id FROM u), CURRENT_DATE + 5
+UNION ALL
+SELECT (SELECT id FROM l), 'Vue proxy', 'Vite → Go via /api/*', 2, 'todo', (SELECT id FROM u), NULL;
+
+-- 5) Assign demo user to first task
+WITH t AS (
+  SELECT id FROM tasks ORDER BY created_at ASC LIMIT 1
+),
+u AS (SELECT id FROM users WHERE email = 'demo@example.com')
+INSERT INTO task_assignees (task_id, user_id)
+SELECT t.id, u.id FROM t, u
+ON CONFLICT DO NOTHING;
+
+-- 6) One comment on first task
+WITH t AS (
+  SELECT id FROM tasks ORDER BY created_at ASC LIMIT 1
+),
+u AS (SELECT id FROM users WHERE email = 'demo@example.com')
+INSERT INTO comments (task_id, author_id, body)
+SELECT t.id, u.id, 'First!' FROM t, u;
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: docker-compose.yml =====
+
+services:
+    db:
+        image: postgres:16
+        container_name: tm_db
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB}
+        ports:
+            - "5432:5432"
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+
+    pgadmin:
+        image: dpage/pgadmin4
+        container_name: tm_pgadmin
+        restart: unless-stopped
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+        ports:
+            - "5050:80"
+        depends_on:
+            - db
+    api:
+        build:
+            context: ./server
+            dockerfile: Dockerfile
+        container_name: tm_api
+        command: ["air", "-c", ".air.toml", "-build.poll", "true", "-build.poll_interval", "1000"]
+        working_dir: /app
+        volumes:
+            - ./server:/app
+        ports:
+            - "8080:8080"
+        depends_on:
+            - db
+        environment:
+            - DB_DSN=${DB_DSN}
+
+    web:
+        build:
+            context: ./web
+            dockerfile: Dockerfile
+        container_name: tm_web
+        command:
+            ["bash", "-lc", "corepack enable && corepack prepare pnpm@9 --activate && pnpm install && pnpm dev --host"]
+        working_dir: /app
+        volumes:
+            - ./web:/app
+            - /app/node_modules
+        ports:
+            - "5173:5173"
+        depends_on:
+            - api
+
+    migrate:
+        image: migrate/migrate:4
+        volumes:
+            - ./db/migrations:/migrations
+        depends_on:
+            - db
+        entrypoint: ["migrate"]
+        command: ["-path", "/migrations", "-database", "postgres://app:app@db:5432/taskmgr?sslmode=disable", "up"]
+
+    seed:
+        image: postgres:16
+        depends_on:
+            - db
+        volumes:
+            - ./db/seed:/seed
+        environment:
+            PGPASSWORD: ${POSTGRES_PASSWORD}
+        entrypoint: ["psql"]
+        command: ["-h", "db", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}", "-f", "/seed/seed.sql"]
+
+volumes:
+    pgdata:
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: project_snapshot_2025-09-15_11-26-12.txt =====
+
+### PROJECT SNAPSHOT
+Generated: 2025-09-15 11:26:12 +03:00
+Root: C:\Users\denis_particleformen\Desktop\docker-projects\task-manager
+
+--- PROJECT STRUCTURE (filtered) ---
+
+[DIR] .
+  - .env
+  - .env.example
+  - .gitignore
+  - docker-compose.yml
+  - README.md
+[DIR] db\migrations
+  - 0001_users.down.sql
+  - 0001_users.up.sql
+  - 0002_boards_and_lists.down.sql
+  - 0002_boards_and_lists.up.sql
+  - 0003_tasks.down.sql
+  - 0003_tasks.up.sql
+  - 0004_task_creator_and_assignees.down.sql
+  - 0004_task_creator_and_assignees.up.sql
+  - 0005_comments.down.sql
+  - 0005_comments.up.sql
+[DIR] db\seed
+  - seed.sql
+[DIR] server
+  - .air.toml
+  - Dockerfile
+  - go.mod
+[DIR] server\cmd\api
+  - main.go
+[DIR] web
+  - .gitignore
+  - Dockerfile
+  - index.html
+  - package.json
+  - README.md
+  - vite.config.js
+[DIR] web\public
+  - vite.svg
+[DIR] web\src
+  - App.vue
+  - main.js
+  - style.css
+[DIR] web\src\assets
+  - vue.svg
+[DIR] web\src\components
+  - HelloWorld.vue
+
+--- FILE CONTENTS (filtered) ---
+
+
+===== BEGIN FILE: .env =====
+
+POSTGRES_USER=app
+POSTGRES_PASSWORD=app
+POSTGRES_DB=taskmgr
+PGADMIN_DEFAULT_EMAIL=admin@example.com
+PGADMIN_DEFAULT_PASSWORD=admin123
+DB_DSN=postgres://app:app@db:5432/taskmgr?sslmode=disable
+
+===== END FILE =====
+
+
+===== BEGIN FILE: .env.example =====
+
+POSTGRES_USER=app
+POSTGRES_PASSWORD=app
+POSTGRES_DB=taskmgr
+PGADMIN_DEFAULT_EMAIL=admin@example.com
+PGADMIN_DEFAULT_PASSWORD=admin123
+DB_DSN=postgres://app:app@db:5432/taskmgr?sslmode=disable
+
+===== END FILE =====
+
+
+===== BEGIN FILE: .gitignore =====
+
+# Node
+node_modules/
+web/node_modules/
+
+# pnpm store (root + nested)
+.pnpm-store/
+web/.pnpm-store/
+**/.pnpm-store/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Editor/IDE settings
+.vscode/
+.idea/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0001_users.down.sql =====
+
+DROP TABLE IF EXISTS users;
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0001_users.up.sql =====
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0002_boards_and_lists.down.sql =====
+
+DROP TABLE IF EXISTS lists;
+DROP TABLE IF EXISTS boards;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0002_boards_and_lists.up.sql =====
+
+-- Boards hold lists; simple for now (owner_id optional for later).
+CREATE TABLE IF NOT EXISTS boards (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  owner_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Lists (columns) belong to a board; position supports ordering left→right.
+CREATE TABLE IF NOT EXISTS lists (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  board_id UUID NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  position INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_lists_board ON lists(board_id);
+CREATE INDEX IF NOT EXISTS idx_lists_board_position ON lists(board_id, position);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0003_tasks.down.sql =====
+
+DROP TABLE IF EXISTS tasks;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0003_tasks.up.sql =====
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  list_id UUID NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  position INT NOT NULL DEFAULT 0,                    -- order within a list (left→right top→bottom)
+  status TEXT NOT NULL DEFAULT 'todo',                -- we'll normalize later if needed
+  assignee_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  due_date DATE NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- quick lookups & ordered pulls
+CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_list_position ON tasks(list_id, position);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0004_task_creator_and_assignees.down.sql =====
+
+DROP TABLE IF EXISTS task_assignees;
+ALTER TABLE tasks DROP COLUMN IF EXISTS created_by;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0004_task_creator_and_assignees.up.sql =====
+
+-- Add creator to tasks
+ALTER TABLE tasks
+  ADD COLUMN created_by UUID NULL REFERENCES users(id) ON DELETE SET NULL;
+
+-- Many-to-many assignees
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (task_id, user_id)
+);
+
+-- Helpful indexes (optional but nice)
+CREATE INDEX IF NOT EXISTS idx_task_assignees_user ON task_assignees(user_id);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0005_comments.down.sql =====
+
+DROP TABLE IF EXISTS comments;
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\migrations\0005_comments.up.sql =====
+
+CREATE TABLE IF NOT EXISTS comments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  task_id   UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: db\seed\seed.sql =====
+
+-- DEV-ONLY SEED. Run after `migrate up` on an empty DB.
+
+-- 1) One demo user
+INSERT INTO users (email, password_hash, name)
+VALUES ('demo@example.com', 'x', 'Demo User')
+ON CONFLICT (email) DO NOTHING;
+
+-- 2) One board
+WITH u AS (
+  SELECT id FROM users WHERE email = 'demo@example.com'
+),
+b AS (
+  INSERT INTO boards (name, owner_id)
+  SELECT 'Demo Board', u.id FROM u
+  RETURNING id
+)
+-- 3) Three lists
+INSERT INTO lists (board_id, name, position)
+SELECT id, 'To Do', 0 FROM b
+UNION ALL SELECT id, 'In Progress', 1 FROM b
+UNION ALL SELECT id, 'Done', 2 FROM b;
+
+-- 4) A few tasks into "To Do"
+WITH
+  b AS (SELECT id FROM boards WHERE name = 'Demo Board'),
+  l AS (
+    SELECT id FROM lists WHERE board_id = (SELECT id FROM b) AND name = 'To Do'
+  ),
+  u AS (SELECT id FROM users WHERE email = 'demo@example.com')
+INSERT INTO tasks (list_id, title, description, position, status, created_by, due_date)
+SELECT (SELECT id FROM l), 'Wire API → DB', 'Ping DB + version()', 0, 'in_progress', (SELECT id FROM u), CURRENT_DATE + 3
+UNION ALL
+SELECT (SELECT id FROM l), 'Add migrations', 'users, boards, lists, tasks, comments', 1, 'todo', (SELECT id FROM u), CURRENT_DATE + 5
+UNION ALL
+SELECT (SELECT id FROM l), 'Vue proxy', 'Vite → Go via /api/*', 2, 'todo', (SELECT id FROM u), NULL;
+
+-- 5) Assign demo user to first task
+WITH t AS (
+  SELECT id FROM tasks ORDER BY created_at ASC LIMIT 1
+),
+u AS (SELECT id FROM users WHERE email = 'demo@example.com')
+INSERT INTO task_assignees (task_id, user_id)
+SELECT t.id, u.id FROM t, u
+ON CONFLICT DO NOTHING;
+
+-- 6) One comment on first task
+WITH t AS (
+  SELECT id FROM tasks ORDER BY created_at ASC LIMIT 1
+),
+u AS (SELECT id FROM users WHERE email = 'demo@example.com')
+INSERT INTO comments (task_id, author_id, body)
+SELECT t.id, u.id, 'First!' FROM t, u;
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: docker-compose.yml =====
+
+services:
+    db:
+        image: postgres:16
+        container_name: tm_db
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB}
+        ports:
+            - "5432:5432"
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+
+    pgadmin:
+        image: dpage/pgadmin4
+        container_name: tm_pgadmin
+        restart: unless-stopped
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+        ports:
+            - "5050:80"
+        depends_on:
+            - db
+    api:
+        build:
+            context: ./server
+            dockerfile: Dockerfile
+        container_name: tm_api
+        command: ["air", "-c", ".air.toml", "-build.poll", "true", "-build.poll_interval", "1000"]
+        working_dir: /app
+        volumes:
+            - ./server:/app
+        ports:
+            - "8080:8080"
+        depends_on:
+            - db
+        environment:
+            - DB_DSN=${DB_DSN}
+
+    web:
+        build:
+            context: ./web
+            dockerfile: Dockerfile
+        container_name: tm_web
+        command:
+            ["bash", "-lc", "corepack enable && corepack prepare pnpm@9 --activate && pnpm install && pnpm dev --host"]
+        working_dir: /app
+        volumes:
+            - ./web:/app
+            - /app/node_modules
+        ports:
+            - "5173:5173"
+        depends_on:
+            - api
+
+    migrate:
+        image: migrate/migrate:4
+        volumes:
+            - ./db/migrations:/migrations
+        depends_on:
+            - db
+        entrypoint: ["migrate"]
+        command: ["-path", "/migrations", "-database", "postgres://app:app@db:5432/taskmgr?sslmode=disable", "up"]
+
+    seed:
+        image: postgres:16
+        depends_on:
+            - db
+        volumes:
+            - ./db/seed:/seed
+        environment:
+            PGPASSWORD: ${POSTGRES_PASSWORD}
+        entrypoint: ["psql"]
+        command: ["-h", "db", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}", "-f", "/seed/seed.sql"]
+
+volumes:
+    pgdata:
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: README.md =====
+
+# Task Manager
+
+Mono-repo with Go API, Vue 3 web app, and Postgres (via Docker).
+
+## Structure
+- **server/** � Go backend (API, auth, tasks, comments)
+- **web/** � Vue 3 frontend (Vite, Pinia, Router)
+- **db/migrations/** � SQL migrations (golang-migrate)
+- **docker/** � Dockerfiles / scripts
+- **docker-compose.yml** � (later) dev stack runner
+
+## Dev Targets (MVP)
+- Auth: register/login/logout
+- Tasks: CRUD, assign, status, due date
+- Comments: per task
+- Filters/search
+
+## Next Steps
+1) Skeleton now.
+2) Prereqs: Docker Desktop, Go, Node LTS.
+3) Docker Compose for dev (db/api/web).
+4) Minimal health endpoints.
+## DB Quick Access
+- pgAdmin: http://localhost:5050  
+  - Add Server ? Host: db, User: app, Password: app
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\.air.toml =====
+
+root = "."
+tmp_dir = "tmp"
+poll = true
+poll_interval = 1000
+[build]
+cmd = "go build -o ./tmp/api ./cmd/api"
+bin = "./tmp/api"
+include_ext = ["go"]
+exclude_dir = ["tmp","vendor"]
+delay = 1000
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\cmd\api\main.go =====
+
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+func main() {
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		log.Fatal("DB_DSN not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		log.Fatal("cannot open db:", err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatal("cannot ping db:", err)
+	}
+	log.Println("DB OK")
+
+	var version string
+	if err := db.QueryRow("select version()").Scan(&version); err != nil {
+		log.Fatal("db query failed:", err)
+	}
+	log.Println("DB version:", version)
+
+	// ✅ all routes must be registered inside main()
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	http.HandleFunc("/api/boards", boardsHandler)
+
+	log.Println("API listening on :8080 (with DB)")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// ===== Handlers and DTOs below main() =====
+type BoardDTO struct {
+	ID    string    `json:"id"`
+	Name  string    `json:"name"`
+	Lists []ListDTO `json:"lists"`
+}
+
+type ListDTO struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Position int       `json:"position"`
+	Tasks    []TaskDTO `json:"tasks"`
+}
+
+type TaskDTO struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Position int    `json:"position"`
+}
+
+func boardsHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	payload := BoardDTO{
+		ID:   id,
+		Name: "Demo Board",
+		Lists: []ListDTO{
+			{ID: "l1", Name: "To Do", Position: 0, Tasks: []TaskDTO{
+				{ID: "t1", Title: "Wire API → DB", Status: "in_progress", Position: 0},
+				{ID: "t2", Title: "Add migrations", Status: "todo", Position: 1},
+			}},
+			{ID: "l2", Name: "In Progress", Position: 1, Tasks: []TaskDTO{}},
+			{ID: "l3", Name: "Done", Position: 2, Tasks: []TaskDTO{}},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\Dockerfile =====
+
+# syntax=docker/dockerfile:1
+FROM golang:1.25
+
+# Install Air for hot reload
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\go.mod =====
+
+module github.com/ri5pekt/task-manager/server
+
+go 1.25.1
+
+require (
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.7.6 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
+	golang.org/x/text v0.24.0 // indirect
+)
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\.gitignore =====
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\Dockerfile =====
+
+# syntax=docker/dockerfile:1
+# Placeholder for Vue app image. We�ll add build steps later.
+FROM node:20 AS dev
+WORKDIR /app
+# (deps, dev server, and prod build will be added later)
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\index.html =====
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + Vue</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\package.json =====
+
+{
+  "name": "web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.2"
+  }
+}
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\public\vite.svg =====
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="31.88" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 257"><defs><linearGradient id="IconifyId1813088fe1fbc01fb466" x1="-.828%" x2="57.636%" y1="7.652%" y2="78.411%"><stop offset="0%" stop-color="#41D1FF"></stop><stop offset="100%" stop-color="#BD34FE"></stop></linearGradient><linearGradient id="IconifyId1813088fe1fbc01fb467" x1="43.376%" x2="50.316%" y1="2.242%" y2="89.03%"><stop offset="0%" stop-color="#FFEA83"></stop><stop offset="8.333%" stop-color="#FFDD35"></stop><stop offset="100%" stop-color="#FFA800"></stop></linearGradient></defs><path fill="url(#IconifyId1813088fe1fbc01fb466)" d="M255.153 37.938L134.897 252.976c-2.483 4.44-8.862 4.466-11.382.048L.875 37.958c-2.746-4.814 1.371-10.646 6.827-9.67l120.385 21.517a6.537 6.537 0 0 0 2.322-.004l117.867-21.483c5.438-.991 9.574 4.796 6.877 9.62Z"></path><path fill="url(#IconifyId1813088fe1fbc01fb467)" d="M185.432.063L96.44 17.501a3.268 3.268 0 0 0-2.634 3.014l-5.474 92.456a3.268 3.268 0 0 0 3.997 3.378l24.777-5.718c2.318-.535 4.413 1.507 3.936 3.838l-7.361 36.047c-.495 2.426 1.782 4.5 4.151 3.78l15.304-4.649c2.372-.72 4.652 1.36 4.15 3.788l-11.698 56.621c-.732 3.542 3.979 5.473 5.943 2.437l1.313-2.028l72.516-144.72c1.215-2.423-.88-5.186-3.54-4.672l-25.505 4.922c-2.396.462-4.435-1.77-3.759-4.114l16.646-57.705c.677-2.35-1.37-4.583-3.769-4.113Z"></path></svg>
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\README.md =====
+
+# Vue 3 + Vite
+
+This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+
+Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\App.vue =====
+
+<script setup>
+import HelloWorld from './components/HelloWorld.vue'
+</script>
+
+<template>
+  <div>
+    <a href="https://vite.dev" target="_blank">
+      <img src="/vite.svg" class="logo" alt="Vite logo" />
+    </a>
+    <a href="https://vuejs.org/" target="_blank">
+      <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
+    </a>
+  </div>
+  <HelloWorld msg="Vite + Vue" />
+</template>
+
+<style scoped>
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.vue:hover {
+  filter: drop-shadow(0 0 2em #42b883aa);
+}
+</style>
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\assets\vue.svg =====
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="37.07" height="36" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 198"><path fill="#41B883" d="M204.8 0H256L128 220.8L0 0h97.92L128 51.2L157.44 0h47.36Z"></path><path fill="#41B883" d="m0 0l128 220.8L256 0h-51.2L128 132.48L50.56 0H0Z"></path><path fill="#35495E" d="M50.56 0L128 133.12L204.8 0h-47.36L128 51.2L97.92 0H50.56Z"></path></svg>
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\components\HelloWorld.vue =====
+
+<script setup>
+import { ref } from 'vue'
+
+defineProps({
+  msg: String,
+})
+
+const count = ref(0)
+</script>
+
+<template>
+  <h1>{{ msg }}</h1>
+
+  <div class="card">
+    <button type="button" @click="count++">count is {{ count }}</button>
+    <p>
+      Edit
+      <code>components/HelloWorld.vue</code> to test HMR
+    </p>
+  </div>
+
+  <p>
+    Check out
+    <a href="https://vuejs.org/guide/quick-start.html#local" target="_blank"
+      >create-vue</a
+    >, the official Vue + Vite starter
+  </p>
+  <p>
+    Learn more about IDE Support for Vue in the
+    <a
+      href="https://vuejs.org/guide/scaling-up/tooling.html#ide-support"
+      target="_blank"
+      >Vue Docs Scaling up Guide</a
+    >.
+  </p>
+  <p class="read-the-docs">Click on the Vite and Vue logos to learn more</p>
+</template>
+
+<style scoped>
+.read-the-docs {
+  color: #888;
+}
+</style>
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\main.js =====
+
+import { createApp } from 'vue'
+import './style.css'
+import App from './App.vue'
+
+createApp(App).mount('#app')
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\style.css =====
+
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+.card {
+  padding: 2em;
+}
+
+#app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\vite.config.js =====
+
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+
+// https://vite.dev/config/
+export default defineConfig({
+    plugins: [vue()],
+    server: {
+        host: true,
+        proxy: {
+            "/api": { target: "http://api:8080", changeOrigin: true },
+        },
+    },
+});
+
+
+===== END FILE =====
+
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: README.md =====
+
+# Task Manager
+
+Mono-repo with Go API, Vue 3 web app, and Postgres (via Docker).
+
+## Structure
+- **server/** � Go backend (API, auth, tasks, comments)
+- **web/** � Vue 3 frontend (Vite, Pinia, Router)
+- **db/migrations/** � SQL migrations (golang-migrate)
+- **docker/** � Dockerfiles / scripts
+- **docker-compose.yml** � (later) dev stack runner
+
+## Dev Targets (MVP)
+- Auth: register/login/logout
+- Tasks: CRUD, assign, status, due date
+- Comments: per task
+- Filters/search
+
+## Next Steps
+1) Skeleton now.
+2) Prereqs: Docker Desktop, Go, Node LTS.
+3) Docker Compose for dev (db/api/web).
+4) Minimal health endpoints.
+## DB Quick Access
+- pgAdmin: http://localhost:5050  
+  - Add Server ? Host: db, User: app, Password: app
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\.air.toml =====
+
+root = "."
+tmp_dir = "tmp"
+poll = true
+poll_interval = 1000
+[build]
+cmd = "go build -o ./tmp/api ./cmd/api"
+bin = "./tmp/api"
+include_ext = ["go"]
+exclude_dir = ["tmp","vendor"]
+delay = 1000
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\cmd\api\main.go =====
+
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+func main() {
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		log.Fatal("DB_DSN not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		log.Fatal("cannot open db:", err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatal("cannot ping db:", err)
+	}
+	log.Println("DB OK")
+
+	var version string
+	if err := db.QueryRow("select version()").Scan(&version); err != nil {
+		log.Fatal("db query failed:", err)
+	}
+	log.Println("DB version:", version)
+
+	// ✅ all routes must be registered inside main()
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	http.HandleFunc("/api/boards", boardsHandler)
+
+	log.Println("API listening on :8080 (with DB)")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// ===== Handlers and DTOs below main() =====
+type BoardDTO struct {
+	ID    string    `json:"id"`
+	Name  string    `json:"name"`
+	Lists []ListDTO `json:"lists"`
+}
+
+type ListDTO struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Position int       `json:"position"`
+	Tasks    []TaskDTO `json:"tasks"`
+}
+
+type TaskDTO struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Position int    `json:"position"`
+}
+
+func boardsHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	payload := BoardDTO{
+		ID:   id,
+		Name: "Demo Board",
+		Lists: []ListDTO{
+			{ID: "l1", Name: "To Do", Position: 0, Tasks: []TaskDTO{
+				{ID: "t1", Title: "Wire API → DB", Status: "in_progress", Position: 0},
+				{ID: "t2", Title: "Add migrations", Status: "todo", Position: 1},
+			}},
+			{ID: "l2", Name: "In Progress", Position: 1, Tasks: []TaskDTO{}},
+			{ID: "l3", Name: "Done", Position: 2, Tasks: []TaskDTO{}},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\Dockerfile =====
+
+# syntax=docker/dockerfile:1
+FROM golang:1.25
+
+# Install Air for hot reload
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: server\go.mod =====
+
+module github.com/ri5pekt/task-manager/server
+
+go 1.25.1
+
+require (
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.7.6 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
+	golang.org/x/text v0.24.0 // indirect
+)
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\.gitignore =====
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\Dockerfile =====
+
+# syntax=docker/dockerfile:1
+# Placeholder for Vue app image. We�ll add build steps later.
+FROM node:20 AS dev
+WORKDIR /app
+# (deps, dev server, and prod build will be added later)
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\index.html =====
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + Vue</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\package.json =====
+
+{
+  "name": "web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.2"
+  }
+}
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\public\vite.svg =====
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="31.88" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 257"><defs><linearGradient id="IconifyId1813088fe1fbc01fb466" x1="-.828%" x2="57.636%" y1="7.652%" y2="78.411%"><stop offset="0%" stop-color="#41D1FF"></stop><stop offset="100%" stop-color="#BD34FE"></stop></linearGradient><linearGradient id="IconifyId1813088fe1fbc01fb467" x1="43.376%" x2="50.316%" y1="2.242%" y2="89.03%"><stop offset="0%" stop-color="#FFEA83"></stop><stop offset="8.333%" stop-color="#FFDD35"></stop><stop offset="100%" stop-color="#FFA800"></stop></linearGradient></defs><path fill="url(#IconifyId1813088fe1fbc01fb466)" d="M255.153 37.938L134.897 252.976c-2.483 4.44-8.862 4.466-11.382.048L.875 37.958c-2.746-4.814 1.371-10.646 6.827-9.67l120.385 21.517a6.537 6.537 0 0 0 2.322-.004l117.867-21.483c5.438-.991 9.574 4.796 6.877 9.62Z"></path><path fill="url(#IconifyId1813088fe1fbc01fb467)" d="M185.432.063L96.44 17.501a3.268 3.268 0 0 0-2.634 3.014l-5.474 92.456a3.268 3.268 0 0 0 3.997 3.378l24.777-5.718c2.318-.535 4.413 1.507 3.936 3.838l-7.361 36.047c-.495 2.426 1.782 4.5 4.151 3.78l15.304-4.649c2.372-.72 4.652 1.36 4.15 3.788l-11.698 56.621c-.732 3.542 3.979 5.473 5.943 2.437l1.313-2.028l72.516-144.72c1.215-2.423-.88-5.186-3.54-4.672l-25.505 4.922c-2.396.462-4.435-1.77-3.759-4.114l16.646-57.705c.677-2.35-1.37-4.583-3.769-4.113Z"></path></svg>
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\README.md =====
+
+# Vue 3 + Vite
+
+This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+
+Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\App.vue =====
+
+<script setup>
+import HelloWorld from './components/HelloWorld.vue'
+</script>
+
+<template>
+  <div>
+    <a href="https://vite.dev" target="_blank">
+      <img src="/vite.svg" class="logo" alt="Vite logo" />
+    </a>
+    <a href="https://vuejs.org/" target="_blank">
+      <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
+    </a>
+  </div>
+  <HelloWorld msg="Vite + Vue" />
+</template>
+
+<style scoped>
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.vue:hover {
+  filter: drop-shadow(0 0 2em #42b883aa);
+}
+</style>
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\assets\vue.svg =====
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="37.07" height="36" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 198"><path fill="#41B883" d="M204.8 0H256L128 220.8L0 0h97.92L128 51.2L157.44 0h47.36Z"></path><path fill="#41B883" d="m0 0l128 220.8L256 0h-51.2L128 132.48L50.56 0H0Z"></path><path fill="#35495E" d="M50.56 0L128 133.12L204.8 0h-47.36L128 51.2L97.92 0H50.56Z"></path></svg>
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\components\HelloWorld.vue =====
+
+<script setup>
+import { ref } from 'vue'
+
+defineProps({
+  msg: String,
+})
+
+const count = ref(0)
+</script>
+
+<template>
+  <h1>{{ msg }}</h1>
+
+  <div class="card">
+    <button type="button" @click="count++">count is {{ count }}</button>
+    <p>
+      Edit
+      <code>components/HelloWorld.vue</code> to test HMR
+    </p>
+  </div>
+
+  <p>
+    Check out
+    <a href="https://vuejs.org/guide/quick-start.html#local" target="_blank"
+      >create-vue</a
+    >, the official Vue + Vite starter
+  </p>
+  <p>
+    Learn more about IDE Support for Vue in the
+    <a
+      href="https://vuejs.org/guide/scaling-up/tooling.html#ide-support"
+      target="_blank"
+      >Vue Docs Scaling up Guide</a
+    >.
+  </p>
+  <p class="read-the-docs">Click on the Vite and Vue logos to learn more</p>
+</template>
+
+<style scoped>
+.read-the-docs {
+  color: #888;
+}
+</style>
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\main.js =====
+
+import { createApp } from 'vue'
+import './style.css'
+import App from './App.vue'
+
+createApp(App).mount('#app')
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\src\style.css =====
+
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+.card {
+  padding: 2em;
+}
+
+#app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+
+===== END FILE =====
+
+
+===== BEGIN FILE: web\vite.config.js =====
+
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+
+// https://vite.dev/config/
+export default defineConfig({
+    plugins: [vue()],
+    server: {
+        host: true,
+        proxy: {
+            "/api": { target: "http://api:8080", changeOrigin: true },
+        },
+    },
+});
+
+
+===== END FILE =====
+
