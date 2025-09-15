@@ -23,3 +23,12 @@ dist-ssr
 *.sw?
 .pnpm-store/
 .vscode/
+
+
+# Dev artifacts
+cookies.txt
+server/tmp/
+project_snapshot_*.txt
+
+# Tailwind v4 (using @tailwindcss/vite, no PostCSS config)
+web/postcss.config.js
