@@ -50,6 +50,7 @@ services:
         volumes:
             - ./web:/app
             - /app/node_modules
+            - pnpmstore:/app/.pnpm-store
         ports:
             - "5173:5173"
         depends_on:
@@ -77,3 +78,4 @@ services:
 
 volumes:
     pgdata:
+    pnpmstore:
