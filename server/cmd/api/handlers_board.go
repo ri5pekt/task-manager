@@ -33,6 +33,13 @@ type TaskDTO struct {
 // ---- Handler ----
 
 func boardsHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	// 🔐 now requires auth (so we can scope by workspace membership)
+	sess, ok := getSessionFromRequest(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	qid := r.URL.Query().Get("id")
 	inc := r.URL.Query().Get("include")
 
@@ -46,11 +53,16 @@ func boardsHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		wantLists, wantTasks = false, false
 	}
 
-	// 1) board
+	// 1) board (scoped to user's workspace membership)
 	var boardID, boardName string
 	var err error
 	if qid != "" {
-		err = db.QueryRow(`SELECT id, name FROM boards WHERE id = $1`, qid).Scan(&boardID, &boardName)
+		err = db.QueryRow(`
+            SELECT b.id, b.name
+            FROM boards b
+            JOIN workspace_members m ON m.workspace_id = b.workspace_id
+            WHERE m.user_id = $1 AND b.id = $2
+        `, sess.UserID, qid).Scan(&boardID, &boardName)
 		if err == sql.ErrNoRows {
 			http.Error(w, "board not found", http.StatusNotFound)
 			return
@@ -59,7 +71,14 @@ func boardsHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 			return
 		}
 	} else {
-		err = db.QueryRow(`SELECT id, name FROM boards ORDER BY created_at ASC LIMIT 1`).Scan(&boardID, &boardName)
+		err = db.QueryRow(`
+            SELECT b.id, b.name
+            FROM boards b
+            JOIN workspace_members m ON m.workspace_id = b.workspace_id
+            WHERE m.user_id = $1
+            ORDER BY b.created_at ASC
+            LIMIT 1
+        `, sess.UserID).Scan(&boardID, &boardName)
 		if err == sql.ErrNoRows {
 			http.Error(w, "no board found", http.StatusNotFound)
 			return

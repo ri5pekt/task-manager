@@ -50,3 +50,24 @@ WITH t AS (
 u AS (SELECT id FROM users WHERE email = 'demo@example.com')
 INSERT INTO comments (task_id, author_id, body)
 SELECT t.id, u.id, 'First!' FROM t, u;
+
+
+
+-- Workspaces (demo)
+WITH u AS (
+  SELECT id FROM users WHERE email = 'demo@example.com'
+),
+w AS (
+  INSERT INTO workspaces (name, slug)
+  VALUES ('Demo Workspace', 'demo')
+  ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id
+)
+INSERT INTO workspace_members (workspace_id, user_id, role)
+SELECT w.id, u.id, 'owner' FROM w, u
+ON CONFLICT DO NOTHING;
+
+-- Attach existing boards to demo workspace if not set
+UPDATE boards
+SET workspace_id = (SELECT id FROM workspaces WHERE slug = 'demo')
+WHERE workspace_id IS NULL;

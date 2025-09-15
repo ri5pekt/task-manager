@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -113,8 +114,64 @@ func registerHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		http.Error(w, "could not create user", http.StatusConflict)
 		return
 	}
+
+	// 👇 best-effort provisioning (workspace + default board + lists)
+	if err := provisionPersonalWorkspace(db, id, req.Name); err != nil {
+		// Non-fatal for registration; just log it. User can still log in.
+		log.Println("provisioning failed:", err)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(registerResp{ID: id, Email: req.Email, Name: req.Name})
+}
+
+func provisionPersonalWorkspace(db *sql.DB, userID, userName string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// 1) workspace (slug NULL for now; keep it simple)
+	var wsID string
+	if err = tx.QueryRow(
+		`INSERT INTO workspaces (name, slug) VALUES ($1, NULL) RETURNING id`,
+		userName+"'s Workspace",
+	).Scan(&wsID); err != nil {
+		return err
+	}
+
+	// 2) membership (owner)
+	if _, err = tx.Exec(
+		`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'owner')
+         ON CONFLICT DO NOTHING`,
+		wsID, userID,
+	); err != nil {
+		return err
+	}
+
+	// 3) default board
+	var boardID string
+	if err = tx.QueryRow(
+		`INSERT INTO boards (name, owner_id, workspace_id) VALUES ($1,$2,$3) RETURNING id`,
+		"My Board", userID, wsID,
+	).Scan(&boardID); err != nil {
+		return err
+	}
+
+	// 4) three starter lists
+	if _, err = tx.Exec(
+		`INSERT INTO lists (board_id, name, position)
+         VALUES ($1,'To Do',0), ($1,'In Progress',1), ($1,'Done',2)`,
+		boardID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // ---- /api/login ----
