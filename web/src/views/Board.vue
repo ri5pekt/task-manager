@@ -1,3 +1,4 @@
+<!-- Board.vue -->
 <template>
     <div class="mx-auto max-w-7xl p-6">
         <div class="mb-4 flex items-center gap-3">
@@ -39,32 +40,56 @@
                         <li
                             v-for="t in l.tasks"
                             :key="t.id"
-                            class="rounded-md border border-emerald-200 bg-emerald-50 p-3"
+                            class="rounded-md border border-emerald-200 bg-emerald-50 p-3 cursor-pointer hover:bg-emerald-100"
+                            @click="openTask(t)"
                         >
                             <div class="flex items-center justify-between">
                                 <span class="font-medium">{{ t.title }}</span>
                                 <span class="text-xs uppercase tracking-wide text-gray-600">{{ t.status }}</span>
                             </div>
                             <div class="mt-2 flex items-center gap-3 text-sm text-gray-600">
-                                <span>🗨️ {{ t.comment_count }}</span>
-                                <span>👤 x{{ t.assignees?.length || 0 }}</span>
+                                +
+                                <span class="flex items-center gap-1">
+                                    <ChatBubbleLeftIcon class="h-4 w-4 text-gray-500" /> {{ t.comment_count }}
+                                </span>
+                                <span class="flex items-center gap-1">
+                                    <UserIcon class="h-4 w-4 text-gray-500" /> x{{ t.assignees?.length || 0 }}
+                                </span>
                                 <span class="ml-auto text-xs text-gray-400">pos {{ t.position }}</span>
                             </div>
                         </li>
                         <li v-if="!l.tasks?.length" class="px-3 py-2 text-sm text-gray-500">No tasks</li>
                     </ul>
+                    <button
+                        class="m-3 mt-1 w-[calc(100%-1.5rem)] rounded-md border border-dashed border-gray-300 py-2 text-sm text-gray-600 hover:border-gray-400 hover:bg-white"
+                        @click="openCreate(l.id)"
+                    >
+                        + Add task
+                    </button>
                 </div>
             </div>
         </div>
 
         <p v-else class="text-gray-600">No board loaded yet.</p>
     </div>
+
+    <TaskModal
+        :open="showModal"
+        :mode="modalMode"
+        :listId="targetListId"
+        :task="activeTask"
+        @close="showModal = false"
+        @created="onCreated"
+        @commented="onCommented"
+    />
 </template>
 
 <script setup>
 import { ref, watchEffect } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../lib/api";
+import { ChatBubbleLeftIcon, UserIcon } from "@heroicons/vue/24/outline";
+import TaskModal from "../components/TaskModal.vue";
 
 const route = useRoute();
 const loading = ref(false);
@@ -91,6 +116,56 @@ watchEffect(() => {
     route.query.id; // track dependency
     loadBoard();
 });
+
+// ----- Modal orchestration (Board is dumb; TaskModal does the work) -----
+const showModal = ref(false);
+const modalMode = ref("create"); // 'create' | 'view'
+const targetListId = ref("");
+const activeTask = ref(null);
+
+function openCreate(listId) {
+    modalMode.value = "create";
+    targetListId.value = listId;
+    activeTask.value = null;
+    showModal.value = true;
+}
+
+function openTask(task) {
+    console.log("[Board] openTask:", { id: task.id, title: task.title, hasDescription: !!task.description });
+    modalMode.value = "view";
+    activeTask.value = task;
+    targetListId.value = "";
+    showModal.value = true;
+}
+
+// When TaskModal creates a task, append it to the right list
+function onCreated(res) {
+    console.log("[Board] onCreated event:", res);
+    const list =
+        board.value?.lists?.find((l) => l.id === res.list_id) ||
+        board.value?.lists?.find((l) => l.id === targetListId.value);
+    if (list) {
+        list.tasks ??= [];
+        list.tasks.push({
+            id: res.id,
+            title: res.title,
+            description: res.description || "",
+            status: res.status,
+            position: res.position,
+            assignees: [],
+            comment_count: 0,
+        });
+    }
+}
+
+// When a comment is posted in TaskModal, bump the card’s comment_count
+function onCommented(c) {
+    const taskId = activeTask.value?.id ?? c.task_id;
+    if (!taskId) return;
+    const list = board.value?.lists?.find((l) => l.tasks?.some((t) => t.id === taskId));
+    const card = list?.tasks?.find((t) => t.id === taskId);
+    if (card) card.comment_count = (card.comment_count || 0) + 1;
+}
 </script>
 
 <style scoped></style>

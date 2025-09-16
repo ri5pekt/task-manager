@@ -37,7 +37,10 @@
             <p v-if="auth.error" class="text-sm text-red-600">{{ auth.error }}</p>
         </form>
 
-        <p class="mt-6 text-sm text-gray-600">Use the account you registered via console.</p>
+        <p class="mt-6 text-sm text-gray-600">
+            Don’t have an account?
+            <RouterLink to="/register" class="underline">Register</RouterLink>
+        </p>
     </div>
 </template>
 

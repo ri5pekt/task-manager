@@ -171,6 +171,25 @@ func provisionPersonalWorkspace(db *sql.DB, userID, userName string) error {
 		return err
 	}
 
+	// 4.1) three example tasks in "To Do"
+	var todoListID string
+	if err = tx.QueryRow(
+		`SELECT id FROM lists WHERE board_id=$1 AND name='To Do' LIMIT 1`,
+		boardID,
+	).Scan(&todoListID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(
+		`INSERT INTO tasks (list_id, title, description, position, status, created_by)
+         VALUES
+         ($1, 'Welcome to your board', 'Drag cards between lists as work progresses.', 0, 'todo', $2),
+         ($1, 'Create your first task', 'Click + to add tasks. Assign teammates later.', 1, 'todo', $2),
+         ($1, 'Invite a teammate', 'Collaborate by inviting others to your workspace.', 2, 'todo', $2)`,
+		todoListID, userID,
+	); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
@@ -290,4 +309,53 @@ func requireAuthAndCSRF(w http.ResponseWriter, r *http.Request) (Session, bool) 
 		return Session{}, false
 	}
 	return s, true
+}
+
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Best-effort: remove session by cookie value
+	if sid, ok := readSIDCookie(r); ok {
+		deleteSessionByID(sid)
+	}
+
+	// Expire cookies
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sid",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf",
+		Value:    "",
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+// readSIDCookie extracts the session id from the "sid" cookie.
+func readSIDCookie(r *http.Request) (string, bool) {
+	c, err := r.Cookie("sid")
+	if err != nil || c.Value == "" {
+		return "", false
+	}
+	return c.Value, true
+}
+
+// deleteSessionByID removes a session from the in-memory store.
+// Relies on the existing `sessions` map and `sessionsMu` mutex defined above.
+func deleteSessionByID(sid string) {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+	delete(sessions, sid)
 }

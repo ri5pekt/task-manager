@@ -1,3 +1,4 @@
+// vite.config.js
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
@@ -17,9 +18,9 @@ export default defineConfig({
             usePolling: true,
             interval: 300,
         },
-        // ⬇️ put the proxy back so /api/* goes to the Go service
         proxy: {
             "/api": { target: "http://api:8080", changeOrigin: true },
+            "/uploads": { target: "http://api:8080", changeOrigin: true }, // ← required
         },
     },
 });
