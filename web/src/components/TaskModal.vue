@@ -1,3 +1,4 @@
+<!-- TaskModal.vue -->
 <template>
     <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="absolute inset-0 bg-black/40" @click="$emit('close')"></div>
@@ -20,7 +21,8 @@
                 />
 
                 <label class="block text-sm font-medium">Description</label>
-                <RichEditor v-model="formDesc" />
+
+                <RichEditor :key="editorKey" v-model="formDesc" />
 
                 <div class="mt-4 flex justify-end gap-2">
                     <button class="rounded px-3 py-1.5 hover:bg-gray-100" @click="$emit('close')">Cancel</button>
@@ -34,12 +36,50 @@
                 </div>
             </div>
 
+            <!-- EDIT -->
+            <div v-if="isEditing" class="space-y-3">
+                <label class="block text-sm font-medium">Title</label>
+                <input
+                    v-model.trim="editTitle"
+                    class="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-emerald-400"
+                    placeholder="Task title"
+                />
+
+                <label class="block text-sm font-medium">Description</label>
+
+                <RichEditor v-model="editDesc" />
+
+                <div class="mt-4 flex justify-end gap-2">
+                    <button class="rounded px-3 py-1.5 hover:bg-gray-100" @click="isEditing = false">Cancel</button>
+                    <button
+                        :disabled="!editTitle"
+                        class="rounded bg-emerald-600 px-3 py-1.5 text-white hover:bg-emerald-500 disabled:opacity-60"
+                        @click="saveEdit"
+                    >
+                        Save
+                    </button>
+                </div>
+            </div>
+
             <!-- VIEW -->
             <div v-else class="space-y-4">
                 <div>
-                    <div class="text-xl font-semibold">{{ task?.title }}</div>
-                    <div class="mt-2 prose max-w-none">
-                        <SafeHtml :html="task?.description || ''" />
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <div class="text-xl font-semibold">{{ task?.title }}</div>
+                            <div class="mt-2 prose max-w-none">
+                                <SafeHtml :html="task?.description || ''" />
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="startEdit">Edit</button>
+                            <button
+                                class="rounded bg-red-600 px-2 py-1 text-sm text-white hover:bg-red-500"
+                                @click="removeTask"
+                            >
+                                Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -88,7 +128,7 @@ const props = defineProps({
     task: { type: Object, default: null }, // used in view mode
 });
 
-const emit = defineEmits(["close", "created", "commented"]);
+const emit = defineEmits(["close", "created", "commented", "updated", "deleted"]);
 
 // --- create mode state
 const formTitle = ref("");
@@ -100,6 +140,41 @@ const comments = ref([]);
 const loadingComments = ref(false);
 const commentBody = ref("");
 const savingComment = ref(false);
+
+const editorKey = ref("editor-boot");
+
+// --- edit mode state
+const isEditing = ref(false);
+const editTitle = ref("");
+const editDesc = ref("");
+
+function initForm() {
+    if (props.mode === "create") {
+        formTitle.value = "";
+        formDesc.value = "";
+    } else if (props.task) {
+        formTitle.value = props.task.title || "";
+        formDesc.value = props.task.description || "";
+    }
+    // force remount RichEditor so it doesn't keep stale content
+    editorKey.value = `${props.task?.id || "new"}-${Date.now()}`;
+}
+
+watch(
+    () => props.open,
+    (o) => {
+        if (o) initForm();
+    }
+);
+watch(
+    () => props.mode,
+    () => initForm(),
+    { immediate: true }
+);
+watch(
+    () => props.task?.id,
+    () => initForm()
+);
 
 // load comments when opening in view mode
 watch(
@@ -118,6 +193,18 @@ watch(
             console.error(e);
         } finally {
             loadingComments.value = false;
+        }
+    }
+);
+
+watch(
+    () => props.open,
+    (o) => {
+        if (o) {
+            initForm();
+            isEditing.value = false; // 🔥 reset edit mode whenever modal opens
+        } else {
+            isEditing.value = false; // 🔥 also reset when modal closes
         }
     }
 );
@@ -158,6 +245,38 @@ async function addComment() {
         alert(e?.message || "Failed to comment");
     } finally {
         savingComment.value = false;
+    }
+}
+
+function startEdit() {
+    if (!props.task) return;
+    isEditing.value = true;
+    editTitle.value = props.task.title || "";
+    editDesc.value = props.task.description || "";
+}
+
+async function saveEdit() {
+    if (!props.task?.id) return;
+    try {
+        const payload = { title: editTitle.value, description: editDesc.value };
+        const res = await api.patch(`/api/tasks?id=${encodeURIComponent(props.task.id)}`, payload);
+        emit("updated", res);
+        isEditing.value = false;
+        emit("close");
+    } catch (e) {
+        alert(e?.message || "Failed to update task");
+    }
+}
+
+async function removeTask() {
+    if (!props.task?.id) return;
+    if (!confirm("Are you sure you want to delete this task?")) return;
+    try {
+        await api.del(`/api/tasks?id=${encodeURIComponent(props.task.id)}`);
+        emit("deleted", props.task.id);
+        emit("close");
+    } catch (e) {
+        alert(e?.message || "Failed to delete task");
     }
 }
 </script>

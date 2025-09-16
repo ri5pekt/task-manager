@@ -27,6 +27,9 @@ import "hugerte/plugins/code";
 const props = defineProps({ modelValue: { type: String, default: "" }, height: { type: Number, default: 280 } });
 const emit = defineEmits(["update:modelValue"]);
 const inner = ref(props.modelValue);
+
+watch(inner, () => emit("update:modelValue", inner.value || ""), { flush: "post" });
+
 watch(
     () => props.modelValue,
     (v) => {

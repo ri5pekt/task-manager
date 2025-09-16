@@ -1,3 +1,4 @@
+// routes.go
 package main
 
 import (
@@ -32,6 +33,10 @@ func registerRoutes(db *sql.DB) {
 		switch r.Method {
 		case http.MethodPost:
 			createTaskHandler(w, r, db)
+		case http.MethodPatch:
+			updateTaskHandler(w, r, db)
+		case http.MethodDelete:
+			deleteTaskHandler(w, r, db)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}

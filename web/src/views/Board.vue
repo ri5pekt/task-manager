@@ -81,6 +81,8 @@
         @close="showModal = false"
         @created="onCreated"
         @commented="onCommented"
+        @updated="onUpdated"
+        @deleted="onDeleted"
     />
 </template>
 
@@ -94,9 +96,11 @@ import TaskModal from "../components/TaskModal.vue";
 const route = useRoute();
 const loading = ref(false);
 const error = ref("");
+
+// Keep board reactive; null is fine initially, we replace with server payload
 const board = ref(null);
 
-// Loads first board by default, or ?id=<uuid> if provided
+// --- load board (first by default, or ?id=...)
 async function loadBoard() {
     loading.value = true;
     error.value = "";
@@ -111,17 +115,18 @@ async function loadBoard() {
     }
 }
 
-// auto-load when the view mounts and when ?id changes
+// auto-load on mount and when ?id changes
 watchEffect(() => {
-    route.query.id; // track dependency
+    // dependency track
+    route.query.id;
     loadBoard();
 });
 
-// ----- Modal orchestration (Board is dumb; TaskModal does the work) -----
+// ----- Modal orchestration -----
 const showModal = ref(false);
-const modalMode = ref("create"); // 'create' | 'view'
-const targetListId = ref("");
-const activeTask = ref(null);
+const modalMode = ref("create"); // "create" | "view"
+const targetListId = ref(""); // used for create
+const activeTask = ref(null); // keep a REFERENCE to the task in board.lists
 
 function openCreate(listId) {
     modalMode.value = "create";
@@ -131,6 +136,7 @@ function openCreate(listId) {
 }
 
 function openTask(task) {
+    // IMPORTANT: keep reference, do NOT clone
     console.log("[Board] openTask:", { id: task.id, title: task.title, hasDescription: !!task.description });
     modalMode.value = "view";
     activeTask.value = task;
@@ -138,33 +144,74 @@ function openTask(task) {
     showModal.value = true;
 }
 
-// When TaskModal creates a task, append it to the right list
+// ----- Events from TaskModal -----
+
+// When TaskModal creates a task, append it to the right list (reactively)
 function onCreated(res) {
-    console.log("[Board] onCreated event:", res);
+    console.log("[Board] onCreated:", res);
+    if (!board.value?.lists?.length) return;
     const list =
-        board.value?.lists?.find((l) => l.id === res.list_id) ||
-        board.value?.lists?.find((l) => l.id === targetListId.value);
-    if (list) {
-        list.tasks ??= [];
-        list.tasks.push({
-            id: res.id,
-            title: res.title,
-            description: res.description || "",
-            status: res.status,
-            position: res.position,
-            assignees: [],
-            comment_count: 0,
-        });
-    }
+        board.value.lists.find((l) => l.id === res.list_id) ||
+        board.value.lists.find((l) => l.id === targetListId.value);
+    if (!list) return;
+    if (!Array.isArray(list.tasks)) list.tasks = [];
+    list.tasks.push({
+        id: res.id,
+        list_id: res.list_id,
+        title: res.title,
+        description: res.description || "",
+        status: res.status,
+        position: res.position,
+        assignees: res.assignees ?? [],
+        comment_count: 0,
+    });
 }
 
 // When a comment is posted in TaskModal, bump the card’s comment_count
 function onCommented(c) {
     const taskId = activeTask.value?.id ?? c.task_id;
-    if (!taskId) return;
-    const list = board.value?.lists?.find((l) => l.tasks?.some((t) => t.id === taskId));
-    const card = list?.tasks?.find((t) => t.id === taskId);
-    if (card) card.comment_count = (card.comment_count || 0) + 1;
+    if (!taskId || !board.value?.lists?.length) return;
+    for (const list of board.value.lists) {
+        const card = list.tasks?.find((t) => t.id === taskId);
+        if (card) {
+            card.comment_count = (card.comment_count || 0) + 1;
+            break;
+        }
+    }
+}
+
+// PATCH result → update the task in-place using splice to preserve reactivity
+function onUpdated(updated) {
+    console.log("[Board] onUpdated:", updated);
+    if (!updated?.id || !board.value?.lists?.length) return;
+    for (const list of board.value.lists) {
+        const idx = list.tasks?.findIndex((t) => t.id === updated.id) ?? -1;
+        if (idx !== -1) {
+            const prev = list.tasks[idx];
+            // replace via splice to trigger reactivity
+            list.tasks.splice(idx, 1, {
+                ...prev, // keep fields not returned by PATCH (assignees, comment_count, list_id)
+                title: updated.title ?? prev.title,
+                description: updated.description ?? prev.description,
+                status: updated.status ?? prev.status,
+                position: typeof updated.position === "number" ? updated.position : prev.position,
+            });
+            break;
+        }
+    }
+}
+
+// DELETE result → remove the task reactively
+function onDeleted(taskId) {
+    console.log("[Board] onDeleted:", taskId);
+    if (!taskId || !board.value?.lists?.length) return;
+    for (const list of board.value.lists) {
+        const idx = list.tasks?.findIndex((t) => t.id === taskId) ?? -1;
+        if (idx !== -1) {
+            list.tasks.splice(idx, 1);
+            break;
+        }
+    }
 }
 </script>
 
