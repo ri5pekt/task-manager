@@ -1,4 +1,4 @@
-<!-- Board.vue -->
+<!-- web/src/views/Board.vue -->
 <template>
     <div class="mx-auto max-w-7xl p-6">
         <div class="mb-4 flex items-center gap-3">
@@ -22,52 +22,79 @@
         <div v-if="board" class="space-y-2">
             <h2 class="text-lg font-medium text-gray-700">{{ board.name }}</h2>
 
-            <!-- Lists grid -->
-            <div class="flex gap-4 overflow-x-auto pb-2">
-                <div
-                    v-for="l in board.lists"
-                    :key="l.id"
-                    class="w-72 shrink-0 rounded-lg border border-gray-200 bg-white"
-                >
-                    <div class="border-b border-gray-200 px-4 py-2">
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium">{{ l.name }}</span>
-                            <span class="text-xs text-gray-500">pos {{ l.position }}</span>
-                        </div>
-                    </div>
-
-                    <ul class="space-y-2 p-3">
-                        <li
-                            v-for="t in l.tasks"
-                            :key="t.id"
-                            class="rounded-md border border-emerald-200 bg-emerald-50 p-3 cursor-pointer hover:bg-emerald-100"
-                            @click="openTask(t)"
-                        >
+            <!-- Lists (draggable as a row) -->
+            <Draggable
+                v-model="board.lists"
+                item-key="id"
+                group="lists"
+                :animation="180"
+                ghost-class="drag-list-ghost"
+                chosen-class="drag-list-chosen"
+                drag-class="drag-list-dragging"
+                tag="div"
+                class="flex gap-4 overflow-x-auto pb-2 items-start"
+                @change="onListChange"
+            >
+                <template #item="{ element: l, index }">
+                    <div :key="l.id" class="w-72 shrink-0 rounded-lg border border-gray-200 bg-white">
+                        <div class="border-b border-gray-200 px-4 py-2 cursor-grab">
                             <div class="flex items-center justify-between">
-                                <span class="font-medium">{{ t.title }}</span>
-                                <span class="text-xs uppercase tracking-wide text-gray-600">{{ t.status }}</span>
+                                <span class="font-medium">{{ l.name }}</span>
+                                <!-- show live index to reflect client-side reorder instantly -->
+                                <span class="text-xs text-gray-500">pos {{ index }}</span>
                             </div>
-                            <div class="mt-2 flex items-center gap-3 text-sm text-gray-600">
-                                +
-                                <span class="flex items-center gap-1">
-                                    <ChatBubbleLeftIcon class="h-4 w-4 text-gray-500" /> {{ t.comment_count }}
-                                </span>
-                                <span class="flex items-center gap-1">
-                                    <UserIcon class="h-4 w-4 text-gray-500" /> x{{ t.assignees?.length || 0 }}
-                                </span>
-                                <span class="ml-auto text-xs text-gray-400">pos {{ t.position }}</span>
-                            </div>
-                        </li>
-                        <li v-if="!l.tasks?.length" class="px-3 py-2 text-sm text-gray-500">No tasks</li>
-                    </ul>
-                    <button
-                        class="m-3 mt-1 w-[calc(100%-1.5rem)] rounded-md border border-dashed border-gray-300 py-2 text-sm text-gray-600 hover:border-gray-400 hover:bg-white"
-                        @click="openCreate(l.id)"
-                    >
-                        + Add task
-                    </button>
-                </div>
-            </div>
+                        </div>
+
+                        <!-- Tasks in this list (draggable, cross-list moves enabled) -->
+                        <draggable
+                            v-model="l.tasks"
+                            group="tasks"
+                            item-key="id"
+                            class="space-y-2 p-3 list-none"
+                            :data-list-id="l.id"
+                            @add="onTaskAdd"
+                            @change="(e) => onTaskOrderChange(e, l)"
+                            ghost-class="drag-task-ghost"
+                            chosen-class="drag-task-chosen"
+                            drag-class="drag-task-dragging"
+                        >
+                            <template #item="{ element: t }">
+                                <li
+                                    class="rounded-md border border-emerald-200 bg-emerald-50 p-3 cursor-pointer hover:bg-emerald-100"
+                                    @click="openTask(t)"
+                                >
+                                    <div class="flex items-center justify-between">
+                                        <span class="font-medium">{{ t.title }}</span>
+                                        <span class="text-xs uppercase tracking-wide text-gray-600">{{
+                                            t.status
+                                        }}</span>
+                                    </div>
+                                    <div class="mt-2 flex items-center gap-3 text-sm text-gray-600">
+                                        <span class="flex items-center gap-1">
+                                            <ChatBubbleLeftIcon class="h-4 w-4 text-gray-500" /> {{ t.comment_count }}
+                                        </span>
+                                        <span class="flex items-center gap-1">
+                                            <UserIcon class="h-4 w-4 text-gray-500" /> x{{ t.assignees?.length || 0 }}
+                                        </span>
+                                        <span class="ml-auto text-xs text-gray-400">pos {{ t.position }}</span>
+                                    </div>
+                                </li>
+                            </template>
+                            <template #footer>
+                                <li v-if="!l.tasks?.length" class="px-3 py-2 text-sm text-gray-500">No tasks</li>
+                            </template>
+                        </draggable>
+
+                        <button
+                            class="m-3 mt-1 w-[calc(100%-1.5rem)] rounded-md border border-dashed border-gray-300 py-2 text-sm text-gray-600 hover:border-gray-400 hover:bg-white"
+                            @click="openCreate(l.id)"
+                        >
+                            + Add task
+                        </button>
+                    </div>
+                </template>
+            </Draggable>
+            <!-- /Lists -->
         </div>
 
         <p v-else class="text-gray-600">No board loaded yet.</p>
@@ -92,12 +119,14 @@ import { useRoute } from "vue-router";
 import { api } from "../lib/api";
 import { ChatBubbleLeftIcon, UserIcon } from "@heroicons/vue/24/outline";
 import TaskModal from "../components/TaskModal.vue";
+import Draggable from "vuedraggable"; // Lists
+import draggable from "vuedraggable"; // Tasks (same component; using both tags is fine)
 
 const route = useRoute();
 const loading = ref(false);
 const error = ref("");
 
-// Keep board reactive; null is fine initially, we replace with server payload
+// Keep board reactive; null is fine initially
 const board = ref(null);
 
 // --- load board (first by default, or ?id=...)
@@ -117,8 +146,7 @@ async function loadBoard() {
 
 // auto-load on mount and when ?id changes
 watchEffect(() => {
-    // dependency track
-    route.query.id;
+    route.query.id; // track dep
     loadBoard();
 });
 
@@ -146,7 +174,6 @@ function openTask(task) {
 
 // ----- Events from TaskModal -----
 
-// When TaskModal creates a task, append it to the right list (reactively)
 function onCreated(res) {
     console.log("[Board] onCreated:", res);
     if (!board.value?.lists?.length) return;
@@ -167,7 +194,6 @@ function onCreated(res) {
     });
 }
 
-// When a comment is posted in TaskModal, bump the card’s comment_count
 function onCommented(c) {
     const taskId = activeTask.value?.id ?? c.task_id;
     if (!taskId || !board.value?.lists?.length) return;
@@ -180,7 +206,6 @@ function onCommented(c) {
     }
 }
 
-// PATCH result → update the task in-place using splice to preserve reactivity
 function onUpdated(updated) {
     console.log("[Board] onUpdated:", updated);
     if (!updated?.id || !board.value?.lists?.length) return;
@@ -188,9 +213,8 @@ function onUpdated(updated) {
         const idx = list.tasks?.findIndex((t) => t.id === updated.id) ?? -1;
         if (idx !== -1) {
             const prev = list.tasks[idx];
-            // replace via splice to trigger reactivity
             list.tasks.splice(idx, 1, {
-                ...prev, // keep fields not returned by PATCH (assignees, comment_count, list_id)
+                ...prev,
                 title: updated.title ?? prev.title,
                 description: updated.description ?? prev.description,
                 status: updated.status ?? prev.status,
@@ -201,7 +225,6 @@ function onUpdated(updated) {
     }
 }
 
-// DELETE result → remove the task reactively
 function onDeleted(taskId) {
     console.log("[Board] onDeleted:", taskId);
     if (!taskId || !board.value?.lists?.length) return;
@@ -213,6 +236,92 @@ function onDeleted(taskId) {
         }
     }
 }
+
+// ===== DND: Tasks =====
+const lastFromListId = ref(""); // set by @add, used by @change(added)
+
+function onTaskAdd(evt) {
+    // evt is a CustomEvent from Sortable with DOM refs
+    lastFromListId.value = evt?.from?.dataset?.listId || "";
+    console.log("[DND] add: fromListId =", lastFromListId.value);
+}
+
+async function onTaskOrderChange(evt, destList) {
+    const { moved, added } = evt;
+
+    // Same-list reorder
+    if (moved) {
+        const payload = {
+            task_id: moved.element?.id,
+            to_list_id: destList.id,
+            to_index: moved.newIndex ?? 0,
+        };
+        try {
+            await api.post("/api/tasks/reorder", payload);
+            console.log("[DND] persisted same-list reorder", payload);
+        } catch (e) {
+            console.error("persist failed", e);
+            // optional: await loadBoard();
+        }
+    }
+
+    // Cross-list move (destination side)
+    if (added) {
+        const payload = {
+            task_id: added.element?.id,
+            to_list_id: destList.id,
+            to_index: added.newIndex ?? 0,
+        };
+        try {
+            await api.post("/api/tasks/reorder", payload);
+            console.log("[DND] persisted cross-list move", payload);
+        } catch (e) {
+            console.error("persist failed", e);
+            // optional: await loadBoard();
+        }
+    }
+}
+
+// ===== DND: Lists =====
+async function onListChange() {
+    if (!board.value?.lists?.length) return;
+    const order = board.value.lists.map((l) => l.id);
+    console.log("[DND][lists] new order:", order);
+    try {
+        await api.post("/api/lists/reorder", { board_id: board.value.id, list_ids: order });
+        console.log("[DND][lists] persisted");
+    } catch (e) {
+        console.error("List reorder failed:", e?.message || e);
+        // optional: await loadBoard();
+    }
+}
 </script>
 
-<style scoped></style>
+<style scoped>
+/* Task drag visuals */
+.drag-task-ghost {
+    background-color: #e5e7eb; /* gray-200 */
+    border: 2px dashed #9ca3af; /* gray-400 */
+    min-height: 3.5rem;
+    border-radius: 0.375rem;
+    opacity: 0.6;
+}
+.drag-task-chosen {
+    opacity: 0.5;
+}
+.drag-task-dragging {
+    cursor: grabbing;
+}
+
+/* List drag visuals */
+.drag-list-ghost {
+    opacity: 0.5;
+    transform: scale(0.98);
+}
+.drag-list-chosen {
+    opacity: 0.8;
+}
+.drag-list-dragging {
+    cursor: grabbing;
+}
+</style>

@@ -41,6 +41,12 @@ func registerRoutes(db *sql.DB) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	http.HandleFunc("/api/tasks/reorder", func(w http.ResponseWriter, r *http.Request) {
+		reorderOrMoveTaskHandler(w, r, db)
+	})
+	http.HandleFunc("/api/lists/reorder", func(w http.ResponseWriter, r *http.Request) {
+		reorderListsHandler(w, r, db)
+	})
 	http.HandleFunc("/api/logout", logoutHandler)
 	http.HandleFunc("/api/uploads", uploadHandler)
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))

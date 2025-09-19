@@ -4,12 +4,57 @@
         <div class="absolute inset-0 bg-black/40" @click="$emit('close')"></div>
 
         <div class="relative w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+            <!-- Header -->
             <div class="mb-4 flex items-center justify-between">
                 <h3 class="text-lg font-semibold">
-                    {{ mode === "create" ? "Create task" : "Task details" }}
+                    {{ mode === "create" ? "Create task" : isEditing ? "Edit task" : "Task details" }}
                 </h3>
-                <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="$emit('close')">✕</button>
+                <div class="flex items-center gap-2">
+                    <!-- Create mode actions -->
+                    <template v-if="mode === 'create'">
+                        <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="$emit('close')">
+                            Cancel
+                        </button>
+                        <button
+                            :disabled="saving || !formTitle"
+                            class="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:opacity-60"
+                            @click="createTask"
+                        >
+                            <span v-if="saving">Saving…</span><span v-else>Save</span>
+                        </button>
+                    </template>
+
+                    <!-- Editing actions -->
+                    <template v-else-if="isEditing">
+                        <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="isEditing = false">
+                            Cancel
+                        </button>
+                        <button
+                            :disabled="!editTitle"
+                            class="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-60"
+                            @click="saveEdit"
+                        >
+                            Save
+                        </button>
+                    </template>
+
+                    <!-- View mode actions -->
+                    <template v-else>
+                        <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="startEdit">Edit</button>
+                        <button
+                            class="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
+                            @click="removeTask"
+                        >
+                            Delete
+                        </button>
+                    </template>
+
+                    <!-- Close (always) -->
+                    <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="$emit('close')">✕</button>
+                </div>
             </div>
+
+            <!-- Body -->
 
             <!-- CREATE -->
             <div v-if="mode === 'create'" class="space-y-3">
@@ -18,105 +63,97 @@
                     v-model.trim="formTitle"
                     class="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-emerald-400"
                     placeholder="Short summary"
+                    autofocus
                 />
 
                 <label class="block text-sm font-medium">Description</label>
-
                 <RichEditor :key="editorKey" v-model="formDesc" />
-
-                <div class="mt-4 flex justify-end gap-2">
-                    <button class="rounded px-3 py-1.5 hover:bg-gray-100" @click="$emit('close')">Cancel</button>
-                    <button
-                        :disabled="saving || !formTitle"
-                        class="rounded bg-gray-900 px-3 py-1.5 text-white hover:bg-gray-800 disabled:opacity-60"
-                        @click="createTask"
-                    >
-                        <span v-if="saving">Saving…</span><span v-else>Save</span>
-                    </button>
-                </div>
             </div>
 
-            <!-- EDIT -->
-            <div v-if="isEditing" class="space-y-3">
-                <label class="block text-sm font-medium">Title</label>
-                <input
-                    v-model.trim="editTitle"
-                    class="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-emerald-400"
-                    placeholder="Task title"
-                />
+            <!-- NOT CREATE: either EDIT or VIEW -->
+            <div v-else>
+                <!-- EDIT -->
+                <div v-if="isEditing" class="space-y-3">
+                    <label class="block text-sm font-medium">Title</label>
+                    <input
+                        v-model.trim="editTitle"
+                        class="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-emerald-400"
+                        placeholder="Task title"
+                        autofocus
+                    />
 
-                <label class="block text-sm font-medium">Description</label>
-
-                <RichEditor v-model="editDesc" />
-
-                <div class="mt-4 flex justify-end gap-2">
-                    <button class="rounded px-3 py-1.5 hover:bg-gray-100" @click="isEditing = false">Cancel</button>
-                    <button
-                        :disabled="!editTitle"
-                        class="rounded bg-emerald-600 px-3 py-1.5 text-white hover:bg-emerald-500 disabled:opacity-60"
-                        @click="saveEdit"
-                    >
-                        Save
-                    </button>
+                    <label class="block text-sm font-medium">Description</label>
+                    <RichEditor v-model="editDesc" />
                 </div>
-            </div>
 
-            <!-- VIEW -->
-            <div v-else class="space-y-4">
-                <div>
-                    <div class="flex items-start justify-between">
-                        <div>
-                            <div class="text-xl font-semibold">{{ task?.title }}</div>
-                            <div class="mt-2 prose max-w-none">
-                                <SafeHtml :html="task?.description || ''" />
+                <!-- VIEW -->
+                <div v-else class="space-y-5">
+                    <div>
+                        <div class="flex items-start justify-between">
+                            <div>
+                                <div class="text-xl font-semibold">{{ task?.title }}</div>
+                                <div class="mt-2 prose max-w-none">
+                                    <SafeHtml :html="task?.description || ''" />
+                                </div>
                             </div>
                         </div>
-                        <div class="flex gap-2">
-                            <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="startEdit">Edit</button>
-                            <button
-                                class="rounded bg-red-600 px-2 py-1 text-sm text-white hover:bg-red-500"
-                                @click="removeTask"
-                            >
-                                Delete
-                            </button>
+                    </div>
+
+                    <!-- Comments -->
+                    <div class="border-t pt-4">
+                        <div class="mb-2 text-sm font-medium text-gray-700">Comments</div>
+
+                        <!-- Collapsed composer (Trello-style) -->
+                        <button
+                            v-if="!composerOpen"
+                            class="w-full rounded-xl border px-4 py-3 text-left text-gray-500 hover:bg-gray-50"
+                            @click="openComposer"
+                        >
+                            Write a comment…
+                        </button>
+
+                        <!-- Expanded rich composer -->
+                        <div v-else class="space-y-2">
+                            <RichEditor v-model="commentHtml" />
+                            <div class="flex items-center gap-2">
+                                <button
+                                    :disabled="savingComment || !hasCommentContent"
+                                    class="rounded bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:opacity-60"
+                                    @click="saveComment"
+                                >
+                                    {{ savingComment ? "Saving…" : "Save" }}
+                                </button>
+                                <button class="rounded px-2 py-1 text-sm hover:bg-gray-100" @click="cancelComment">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Comments list -->
+                        <div v-if="loadingComments" class="mt-3 text-sm text-gray-500">Loading…</div>
+                        <div v-else class="mt-3 max-h-60 overflow-y-auto pr-1">
+                            <ul class="space-y-2">
+                                <li v-for="c in comments" :key="c.id" class="rounded border bg-white p-2 text-sm">
+                                    <div class="text-gray-800">
+                                        <SafeHtml :html="c.body || ''" />
+                                    </div>
+                                    <div class="mt-1 text-xs text-gray-500">
+                                        {{ new Date(c.created_at).toLocaleString() }}
+                                    </div>
+                                </li>
+                                <li v-if="!comments.length" class="text-sm text-gray-500">No comments yet.</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
-
-                <div class="border-t pt-3">
-                    <div class="mb-2 text-sm font-medium text-gray-700">Comments</div>
-
-                    <div class="mb-3 flex gap-2">
-                        <input
-                            v-model="commentBody"
-                            placeholder="Add a comment…"
-                            class="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-emerald-400"
-                        />
-                        <button
-                            :disabled="savingComment || !commentBody.trim()"
-                            class="rounded bg-gray-900 px-3 py-1.5 text-white hover:bg-gray-800 disabled:opacity-60"
-                            @click="addComment"
-                        >
-                            {{ savingComment ? "Posting…" : "Post" }}
-                        </button>
-                    </div>
-
-                    <div v-if="loadingComments" class="text-sm text-gray-500">Loading…</div>
-                    <ul v-else class="space-y-2">
-                        <li v-for="c in comments" :key="c.id" class="rounded border bg-white p-2 text-sm">
-                            <div class="text-gray-800">{{ c.body }}</div>
-                            <div class="mt-1 text-xs text-gray-500">{{ new Date(c.created_at).toLocaleString() }}</div>
-                        </li>
-                        <li v-if="!comments.length" class="text-sm text-gray-500">No comments yet.</li>
-                    </ul>
-                </div>
             </div>
+            <!-- /NOT CREATE -->
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, computed, nextTick } from "vue";
 import { api } from "../lib/api";
 import RichEditor from "./RichEditor.vue";
 import SafeHtml from "./SafeHtml.vue";
@@ -134,14 +171,25 @@ const emit = defineEmits(["close", "created", "commented", "updated", "deleted"]
 const formTitle = ref("");
 const formDesc = ref("");
 const saving = ref(false);
+const editorKey = ref("editor-boot");
 
-// --- view mode state
+// --- view mode / comments state
 const comments = ref([]);
 const loadingComments = ref(false);
-const commentBody = ref("");
+
+// New Trello-style composer state
+const composerOpen = ref(false);
+const commentHtml = ref("");
 const savingComment = ref(false);
 
-const editorKey = ref("editor-boot");
+const hasCommentContent = computed(() => {
+    const html = (commentHtml.value || "").replace(/<br\s*\/?>/gi, "\n");
+    const text = html
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .trim();
+    return text.length > 0;
+});
 
 // --- edit mode state
 const isEditing = ref(false);
@@ -183,11 +231,6 @@ watch(
         if (!open || mode !== "view" || !props.task?.id) return;
         loadingComments.value = true;
         try {
-            console.log("[TaskModal] open view for task:", props.task?.id, {
-                title: props.task?.title,
-                hasDescription: !!props.task?.description,
-                descriptionPreview: (props.task?.description || "").slice(0, 80),
-            });
             comments.value = await api.get(`/api/comments?task_id=${encodeURIComponent(props.task.id)}`);
         } catch (e) {
             console.error(e);
@@ -197,19 +240,23 @@ watch(
     }
 );
 
+// also reset edit/composer state on open/close
 watch(
     () => props.open,
     (o) => {
         if (o) {
-            initForm();
-            isEditing.value = false; // 🔥 reset edit mode whenever modal opens
+            isEditing.value = false;
+            composerOpen.value = false;
+            commentHtml.value = "";
         } else {
-            isEditing.value = false; // 🔥 also reset when modal closes
+            isEditing.value = false;
+            composerOpen.value = false;
+            commentHtml.value = "";
         }
     }
 );
 
-// create task
+// ----- create task
 async function createTask() {
     if (!formTitle.value.trim() || !props.listId) return;
     saving.value = true;
@@ -220,8 +267,6 @@ async function createTask() {
             description: formDesc.value || "",
         };
         const res = await api.post("/api/tasks", payload);
-        console.log("[TaskModal] createTask response:", res);
-        console.log("[TaskModal] createTask payload:", payload);
         emit("created", { ...res, description: formDesc.value || "" });
         emit("close");
     } catch (e) {
@@ -231,15 +276,26 @@ async function createTask() {
     }
 }
 
-// add comment
-async function addComment() {
-    const body = commentBody.value.trim();
-    if (!body || !props.task?.id) return;
+// ----- comments (Trello-style)
+function openComposer() {
+    composerOpen.value = true;
+    nextTick(() => {
+        // editor will autofocus caret itself; no-op here
+    });
+}
+function cancelComment() {
+    composerOpen.value = false;
+    commentHtml.value = "";
+}
+async function saveComment() {
+    const body = commentHtml.value || "";
+    if (!props.task?.id || !hasCommentContent.value) return;
     savingComment.value = true;
     try {
         const c = await api.post("/api/comments", { task_id: props.task.id, body });
         comments.value.unshift(c);
-        commentBody.value = "";
+        commentHtml.value = "";
+        composerOpen.value = false;
         emit("commented", c); // let Board bump comment_count if it wants
     } catch (e) {
         alert(e?.message || "Failed to comment");
@@ -248,13 +304,13 @@ async function addComment() {
     }
 }
 
+// ----- edit task
 function startEdit() {
     if (!props.task) return;
     isEditing.value = true;
     editTitle.value = props.task.title || "";
     editDesc.value = props.task.description || "";
 }
-
 async function saveEdit() {
     if (!props.task?.id) return;
     try {
@@ -267,7 +323,6 @@ async function saveEdit() {
         alert(e?.message || "Failed to update task");
     }
 }
-
 async function removeTask() {
     if (!props.task?.id) return;
     if (!confirm("Are you sure you want to delete this task?")) return;
@@ -280,3 +335,7 @@ async function removeTask() {
     }
 }
 </script>
+
+<style scoped>
+/* Small UX helpers */
+</style>
