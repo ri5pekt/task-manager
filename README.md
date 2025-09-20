@@ -3,23 +3,64 @@
 Mono-repo with Go API, Vue 3 web app, and Postgres (via Docker).
 
 ## Structure
-- **server/** – Go backend (API, auth, tasks, comments)
-- **web/** – Vue 3 frontend (Vite, Pinia, Router)
-- **db/migrations/** – SQL migrations (golang-migrate)
-- **docker/** – Dockerfiles / scripts
-- **docker-compose.yml** – (later) dev stack runner
+
+-   **server/** â€” Go backend (API, auth, tasks, comments)
+-   **web/** â€” Vue 3 frontend (Vite, Pinia, Router)
+-   **db/migrations/** â€” SQL migrations (golang-migrate)
+-   **db/seed/** â€” Seed data
+-   **docker/** â€” Dockerfiles / scripts
+-   **docker-compose.yml** â€” Dev stack runner
 
 ## Dev Targets (MVP)
-- Auth: register/login/logout
-- Tasks: CRUD, assign, status, due date
-- Comments: per task
-- Filters/search
 
-## Next Steps
-1) Skeleton now.
-2) Prereqs: Docker Desktop, Go, Node LTS.
-3) Docker Compose for dev (db/api/web).
-4) Minimal health endpoints.
-## DB Quick Access
-- pgAdmin: http://localhost:5050  
-  - Add Server ? Host: db, User: app, Password: app
+-   **Auth**: register / login / logout
+-   **Tasks**: CRUD, assign, due date, labels (Trello-style)
+-   **Comments**: per task
+-   **Filters / search**
+
+## Database Quick Access
+
+-   **pgAdmin**: http://localhost:5050
+    -   Add Server â†’ Host: `db`, User: `app`, Password: `app`
+
+## Common PowerShell Commands
+
+### Start / Stop Dev Stack
+
+# Start everything in background
+
+docker compose up -d
+
+# Stop containers
+
+docker compose down
+
+### Logs
+
+# Tail API logs
+
+docker compose logs -f api
+
+# Tail DB logs
+
+docker compose logs -f db
+
+### Database Migrations
+
+# Apply all pending migrations
+
+docker compose run --rm migrate
+
+# Apply just the next migration
+
+docker compose run --rm migrate -path /migrations -database "postgres://app:app@db:5432/taskmgr?sslmode=disable" up 1
+
+# Roll back last migration
+
+docker compose run --rm migrate -path /migrations -database "postgres://app:app@db:5432/taskmgr?sslmode=disable" down 1
+
+### Database Seeding
+
+# Re-run seed.sql into DB
+
+docker compose run --rm seed

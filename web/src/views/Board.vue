@@ -65,9 +65,6 @@
                                 >
                                     <div class="flex items-center justify-between">
                                         <span class="font-medium">{{ t.title }}</span>
-                                        <span class="text-xs uppercase tracking-wide text-gray-600">{{
-                                            t.status
-                                        }}</span>
                                     </div>
                                     <div class="mt-2 flex items-center gap-3 text-sm text-gray-600">
                                         <span class="flex items-center gap-1">

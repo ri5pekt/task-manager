@@ -25,7 +25,6 @@ type TaskDTO struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
 	Description  string   `json:"description"`
-	Status       string   `json:"status"`
 	Position     int      `json:"position"`
 	Assignees    []string `json:"assignees"`
 	CommentCount int      `json:"comment_count"`
@@ -111,7 +110,7 @@ func boardsHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	// 3) tasks per list
 	if wantTasks {
 		for i := range lists {
-			trows, err := db.Query(`SELECT id, title, description, status, position FROM tasks WHERE list_id=$1 ORDER BY position ASC`, lists[i].ID)
+			trows, err := db.Query(`SELECT id, title, description, position FROM tasks WHERE list_id=$1 ORDER BY position ASC`, lists[i].ID)
 			if err != nil {
 				http.Error(w, "tasks query failed", http.StatusInternalServerError)
 				return
@@ -119,7 +118,7 @@ func boardsHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 			tasks := make([]TaskDTO, 0)
 			for trows.Next() {
 				var t TaskDTO
-				if err := trows.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.Position); err == nil {
+				if err := trows.Scan(&t.ID, &t.Title, &t.Description, &t.Position); err == nil {
 					// assignees
 					arows, _ := db.Query(`SELECT user_id FROM task_assignees WHERE task_id=$1`, t.ID)
 					aids := make([]string, 0)

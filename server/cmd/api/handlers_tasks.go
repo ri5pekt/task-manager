@@ -22,7 +22,6 @@ type taskCreatedResp struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Position    int    `json:"position"`
-	Status      string `json:"status"`
 }
 
 func createTaskHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
@@ -66,12 +65,12 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	_ = db.QueryRow(`SELECT COALESCE(MAX(position)+1, 0) FROM tasks WHERE list_id=$1`, req.ListID).Scan(&nextPos)
 
 	// Insert
-	var id, status string
+	var id string
 	if err := db.QueryRow(`
-		INSERT INTO tasks (list_id, title, description, position, status, created_by)
-		VALUES ($1,$2,$3,$4,'todo',$5)
-		RETURNING id, status
-	`, req.ListID, req.Title, req.Description, nextPos, sess.UserID).Scan(&id, &status); err != nil {
+   		INSERT INTO tasks (list_id, title, description, position, created_by)
+   		VALUES ($1,$2,$3,$4,$5)
+   		RETURNING id
+ 		`, req.ListID, req.Title, req.Description, nextPos, sess.UserID).Scan(&id); err != nil {
 		http.Error(w, "insert failed", http.StatusBadRequest)
 		return
 	}
@@ -142,14 +141,14 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 			JOIN workspace_members m ON m.workspace_id = b.workspace_id
 			WHERE l.id = t.list_id AND m.user_id = $` + strconv.Itoa(userPos) + `
 		)
-		RETURNING t.id, t.title, t.description, t.status, t.position
+		RETURNING t.id, t.title, t.description, t.position
 	`
 
 	log.Printf("[updateTaskHandler] query OK:\n%s\nargs: %#v", query, args)
 
 	var out taskCreatedResp
 	// taskCreatedResp now includes Description (you already added it)
-	if err := db.QueryRow(query, args...).Scan(&out.ID, &out.Title, &out.Description, &out.Status, &out.Position); err != nil {
+	if err := db.QueryRow(query, args...).Scan(&out.ID, &out.Title, &out.Description, &out.Position); err != nil {
 		http.Error(w, "update failed", http.StatusBadRequest)
 		return
 	}
